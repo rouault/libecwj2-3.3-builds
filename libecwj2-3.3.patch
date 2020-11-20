@@ -1,0 +1,152 @@
+diff -ur libecwj2-3.3-2006-09-06/Source/C/NCSEcw/NCSJP2/NCSJPCResolution.cpp libecwj2-3.3/Source/C/NCSEcw/NCSJP2/NCSJPCResolution.cpp
+--- libecwj2-3.3-2006-09-06/Source/C/NCSEcw/NCSJP2/NCSJPCResolution.cpp	2006-07-03 03:15:12.000000000 +0200
++++ libecwj2-3.3/Source/C/NCSEcw/NCSJP2/NCSJPCResolution.cpp	2016-11-04 17:08:07.895363636 +0100
+@@ -1773,10 +1773,10 @@
+ 		//Step0-1 == 2State.
+ 		//
+ 
+-		UINT32 n = 0;
++		INT32 n = 0;
+ 		nWidth = NCSCeilDiv(nWidth, 2);
+ 
+-		UINT32 n2n = n * 2 - 2;
++		INT32 n2n = n * 2 - 2;
+ 			
+ 		INT32 nPrevVert01 = pSrc1Down[n2n] - NCSFloorDiv(pSrc0[n2n] + pSrc2Down[n2n], 2);
+ 		INT32 nPrevVert11 = pSrc1Down[n2n+1] - NCSFloorDiv(pSrc0[n2n+1] + pSrc2Down[n2n+1], 2);
+diff -ur libecwj2-3.3-2006-09-06/Source/C/NCSUtil/malloc.c libecwj2-3.3/Source/C/NCSUtil/malloc.c
+--- libecwj2-3.3-2006-09-06/Source/C/NCSUtil/malloc.c	2006-07-03 03:15:02.000000000 +0200
++++ libecwj2-3.3/Source/C/NCSUtil/malloc.c	2016-11-04 17:07:50.331964802 +0100
+@@ -390,7 +390,12 @@
+ #else	/* SOLARIS */
+ 
+ #ifdef LINUX
+-	return(sysconf(_SC_PHYS_PAGES) * sysconf(_SC_PAGESIZE));
++        long nPages = sysconf(_SC_PHYS_PAGES);
++        long nPageSize = sysconf(_SC_PAGESIZE);
++        if (nPages > INT_MAX / nPageSize)
++            return INT_MAX;
++        else
++	    return (INT32)(nPages * nPageSize);
+ #elif defined MACOSX
+ 	return(128*1024*1024);
+ 
+diff -ur libecwj2-3.3-2006-09-06/Source/C/NCSUtil/NCSPrefsXML.cpp libecwj2-3.3/Source/C/NCSUtil/NCSPrefsXML.cpp
+--- libecwj2-3.3-2006-09-06/Source/C/NCSUtil/NCSPrefsXML.cpp	2006-07-03 03:15:12.000000000 +0200
++++ libecwj2-3.3/Source/C/NCSUtil/NCSPrefsXML.cpp	2016-12-16 23:47:44.382016358 +0100
+@@ -32,7 +32,11 @@
+ 	} else {
+ 		char *pHomeDir = getenv("HOME");
+ 		if( pHomeDir ) {
++#ifdef NCS_BUILD_UNICODE
++			sUserPrefsFile.Format( NCS_T("%s%ls"), pHomeDir, NCS_T("/.erm/ncsuserprefs.xml") );
++#else
+ 			sUserPrefsFile.Format( NCS_T("%s%s"), pHomeDir, NCS_T("/.erm/ncsuserprefs.xml") );
++#endif
+ 		} else {
+ 			sUserPrefsFile = NCS_T("/etc/erm/ncsuserprefs.xml");
+ 		}
+diff -ur libecwj2-3.3-2006-09-06/Source/C/NCSUtil/NCSThread.cpp libecwj2-3.3/Source/C/NCSUtil/NCSThread.cpp
+--- libecwj2-3.3-2006-09-06/Source/C/NCSUtil/NCSThread.cpp	2006-07-03 03:15:12.000000000 +0200
++++ libecwj2-3.3/Source/C/NCSUtil/NCSThread.cpp	2016-11-04 17:07:50.143971326 +0100
+@@ -47,6 +47,12 @@
+ 	//void **pStartData = (void **)NCSMalloc(2 * sizeof(void*), TRUE);
+ 	//pStartData[0] = (void*)this;
+ 	//pStartData[1] = pData;
++    if( m_Thread != NCS_NULL_THREAD_ID )
++    {
++        //fprintf( stderr, "Cleanup old threadinfo in spawn()\n" );
++        FreeInfo();
++        m_Thread = NCS_NULL_THREAD_ID;
++    }
+ 	m_pData = pData;
+ 	m_bRun = true;
+ 	return(NCSThreadSpawn(&m_Thread, CNCSThread::ThreadFunc, (void*)this, bCreateSuspended)==TRUE);
+diff -Nur libecwj2-3.3-2006-09-06/Source/C/tinyxml/tinyxml.cpp libecwj2-3.3/Source/C/tinyxml/tinyxml.cpp
+--- libecwj2-3.3-2006-09-06/Source/C/tinyxml/tinyxml.cpp	2006-07-03 03:15:12.000000000 +0200
++++ libecwj2-3.3/Source/C/tinyxml/tinyxml.cpp	2017-04-20 18:34:02.666907853 +0200
+@@ -30,6 +30,9 @@
+ #endif
+ 
+ 
++namespace NCSTiXML {
++
++
+ bool TiXmlBase::condenseWhiteSpace = true;
+ 
+ void TiXmlBase::PutString( const TIXML_STRING& str, TIXML_OSTREAM* stream )
+@@ -983,7 +986,7 @@
+ 		fseek( file, 0, SEEK_SET );
+ 
+ 		// Strange case, but good to handle up front.
+-		if ( length == 0 )
++		if ( length <= 0 || length > INT_MAX )
+ 		{
+ 			fclose( file );
+ 			return false;
+@@ -1020,6 +1023,8 @@
+ 
+ 		if ( fread( buf, length, 1, file ) != 1 ) {
+ 		//if ( fread( buf, 1, length, file ) != (size_t)length ) {
++            delete[] buf;
++            buf = NULL;
+ 			SetError( TIXML_ERROR_OPENING_FILE, 0, 0, TIXML_ENCODING_UNKNOWN );
+ 			fclose( file );
+ 			return false;
+@@ -1730,3 +1735,5 @@
+ 	}
+ 	return TiXmlHandle( 0 );
+ }
++
++}; //  namespace NCSTiXML
+diff -Nur libecwj2-3.3-2006-09-06/Source/C/tinyxml/tinyxml.h libecwj2-3.3/Source/C/tinyxml/tinyxml.h
+--- libecwj2-3.3-2006-09-06/Source/C/tinyxml/tinyxml.h	2006-07-03 03:15:22.000000000 +0200
++++ libecwj2-3.3/Source/C/tinyxml/tinyxml.h	2017-04-20 18:35:23.778037717 +0200
+@@ -92,6 +92,8 @@
+ 	#endif
+ #endif	
+ 
++namespace NCSTiXML {
++
+ class TiXmlDocument;
+ class TiXmlElement;
+ class TiXmlComment;
+@@ -1513,6 +1515,20 @@
+ 	TiXmlNode* node;
+ };
+ 
++}; //  namespace NCSTiXML
++
++using NCSTiXML::TiXmlBase;
++using NCSTiXML::TiXmlDocument;
++using NCSTiXML::TiXmlElement;
++using NCSTiXML::TiXmlComment;
++using NCSTiXML::TiXmlUnknown;
++using NCSTiXML::TiXmlAttribute;
++using NCSTiXML::TiXmlText;
++using NCSTiXML::TiXmlDeclaration;
++using NCSTiXML::TiXmlParsingData;
++using NCSTiXML::TiXmlHandle;
++using NCSTiXML::TiXmlNode;
++
+ #ifdef _MSC_VER
+ #pragma warning( pop )
+ #endif
+diff -Nur libecwj2-3.3-2006-09-06/Source/C/tinyxml/tinyxmlparser.cpp libecwj2-3.3/Source/C/tinyxml/tinyxmlparser.cpp
+--- libecwj2-3.3-2006-09-06/Source/C/tinyxml/tinyxmlparser.cpp	2006-07-03 03:15:12.000000000 +0200
++++ libecwj2-3.3/Source/C/tinyxml/tinyxmlparser.cpp	2017-04-20 18:34:04.918883798 +0200
+@@ -28,6 +28,9 @@
+ 
+ //#define DEBUG_PARSER
+ 
++
++namespace NCSTiXML {
++
+ // Note tha "PutString" hardcodes the same list. This
+ // is less flexible than it appears. Changing the entries
+ // or order will break putstring.	
+@@ -1570,3 +1573,4 @@
+ 	return true;
+ }
+ 
++}; //  namespace NCSTiXML
